@@ -1,0 +1,20 @@
+{
+  "name": "attendance-payroll",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": { "start": "ng serve", "build": "ng build" },
+  "dependencies": {
+    "@angular/animations": "20.3.30",
+    "@angular/common": "20.3.30",
+    "@angular/compiler": "20.3.30",
+    "@angular/core": "20.3.30",
+    "@angular/forms": "20.3.30",
+    "@angular/platform-browser": "20.3.30",
+    "@angular/router": "20.3.30",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0",
+    "xlsx": "^0.18.5",
+    "zone.js": "~0.15.0"
+  },
+  "devDependencies": { "@angular/build": "20.3.30", "@angular/cli": "20.3.30", "@angular/compiler-cli": "20.3.30", "typescript": "~5.8.2" }
+}
