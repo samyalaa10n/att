@@ -1,5 +1,257 @@
-<aside class="sidebar"><div class="brand">مِيزان <small>الحضور والرواتب</small></div><button [class.selected]="view==='dashboard'" (click)="view='dashboard'">▦ لوحة التحكم</button><button [class.selected]="view==='employees'" (click)="view='employees'">♙ الموظفون</button><label class="import">⇧ استيراد Excel<input type="file" accept=".xlsx,.xls,.csv" (change)="importFile($event)"></label><button (click)="exportExcel()" [disabled]="!employees.length">⇩ تصدير التقرير</button></aside>
-<main><header><div><p class="eyebrow">إدارة دقيقة وواضحة</p><h1>{{view==='employee' ? active?.name : view==='employees' ? 'الموظفون' : 'لوحة التحكم'}}</h1></div><div class="actions"><button (click)="print()" [disabled]="!employees.length">طباعة التقرير</button></div></header>
-<section *ngIf="view==='dashboard'" class="page"><div class="hero"><div><h2>مرحبًا بك في مِيزان</h2><p>استورد ملف البصمات، راجع الأخطاء، ثم احسب ساعات العمل والرواتب في مكان واحد.</p></div><label class="primary">{{busy?'جارٍ التحليل…':'استيراد ملف الحضور'}}<input type="file" accept=".xlsx,.xls,.csv" (change)="importFile($event)"></label></div><div class="stats"><article><span>الموظفون</span><b>{{employees.length}}</b></article><article><span>أيام العمل المسجلة</span><b>{{totalDays}}</b></article><article><span>إجمالي ساعات العمل</span><b>{{totalHours | number:'1.1-1'}} س</b></article><article><span>إجمالي الرواتب</span><b>{{totalPayroll | number:'1.0-0'}} ج.م</b></article></div><div *ngIf="errors.length" class="errors"><h3>تنبيهات الاستيراد ({{errors.length}})</h3><p *ngFor="let error of errors | slice:0:8">الصف {{error.row || '—'}}: {{error.message}}</p></div><div class="empty" *ngIf="!employees.length && !errors.length">يرجى رفع ملف Excel يحتوي على الأعمدة: <code>Department, Name, No, DateTime, Status, LocationID</code></div></section>
-<section *ngIf="view==='employees'" class="page"><div class="table-card" *ngIf="employees.length; else none"><table><thead><tr><th>الموظف</th><th>القسم</th><th>أيام العمل</th><th>الساعات</th><th>إجمالي الراتب</th><th></th></tr></thead><tbody><tr *ngFor="let e of employees"><td><b>{{e.name}}</b><small>#{{e.no}}</small></td><td>{{e.department}}</td><td>{{employeeDays(e)}}</td><td>{{employeeHours(e) | number:'1.1-1'}} س</td><td>{{(+e.basic || 0) + (+e.allowance || 0) | number:'1.0-0'}} ج.م</td><td><button class="link" (click)="select(e)">عرض الملف ←</button></td></tr></tbody></table></div><ng-template #none><div class="empty">لا توجد بيانات بعد. ابدأ باستيراد ملف الحضور.</div></ng-template></section>
-<section *ngIf="view==='employee' && active" class="page"><button class="back" (click)="view='employees'">← كل الموظفين</button><div class="profile"><div><h2>{{active.name}}</h2><p>#{{active.no}} · {{active.department}}</p></div><div class="summary"><span>أيام العمل <b>{{employeeDays(active)}}</b></span><span>الساعات <b>{{employeeHours(active) | number:'1.1-1'}} س</b></span></div></div><div class="pay"><label>الراتب الأساسي<input type="number" [(ngModel)]="active.basic" min="0"></label><label>البدلات<input type="number" [(ngModel)]="active.allowance" min="0"></label><div>إجمالي الراتب <b>{{(+active.basic || 0) + (+active.allowance || 0) | number:'1.0-0'}} ج.م</b></div></div><div class="table-card"><div class="card-head"><h3>البصمات والحضور</h3><button class="small" (click)="addPunch(active)">+ إضافة بصمة</button></div><table><thead><tr><th>التاريخ</th><th>الوقت</th><th>الحالة</th><th>الموقع</th><th>ساعات اليوم</th><th></th></tr></thead><tbody><tr *ngFor="let p of active.punches"><td><input type="date" [(ngModel)]="p.date"></td><td><input type="time" [(ngModel)]="p.time"></td><td><select [(ngModel)]="p.status"><option>C/In</option><option>C/Out</option></select></td><td><input [(ngModel)]="p.location" placeholder="الموقع"></td><td>{{fmtMinutes(dayMinutes(active,p.date))}}</td><td><button class="delete" (click)="removePunch(active,p)">حذف</button></td></tr></tbody></table></div></section></main>
+<div class="storage-banner">⚠ البيانات محفوظة في متصفح هذا الجهاز فقط (Local Storage). مسح بيانات التصفح أو الكاش هيحذفها نهائيًا — اضغط "حفظ البيانات الآن" بانتظام، أو صدّر نسخة Excel للاحتفاظ بنسخة دائمة.</div>
+<datalist id="dsTypes"><option *ngFor="let t of daySigTypes" [value]="t"></option></datalist>
+
+<div class="app-body">
+<aside class="sidebar">
+  <div class="brand">مِيزان <small>الحضور والانصراف</small></div>
+  <button [class.selected]="view==='dashboard'" (click)="view='dashboard'">▦ لوحة التحكم</button>
+  <button [class.selected]="view==='employees'" (click)="view='employees'">♙ الموظفون</button>
+  <label class="import">⇧ استيراد Excel<input type="file" accept=".xlsx,.xls,.csv" (change)="importFile($event)"></label>
+  <button (click)="exportExcel()" [disabled]="!employees.length">⇩ تصدير التقرير</button>
+  <button class="save-now" [class.saved]="savedFlash" (click)="saveNow()" [disabled]="!employees.length">{{savedFlash ? '✓ تم الحفظ' : '💾 حفظ البيانات الآن'}}</button>
+  <div class="sidebar-spacer"></div>
+  <button class="ghost-danger" (click)="clearSaved()" [disabled]="!employees.length">🗑 مسح البيانات المحفوظة</button>
+</aside>
+
+<main>
+  <header>
+    <div>
+      <p class="eyebrow">إدارة دقيقة وواضحة</p>
+      <h1>{{view==='employee' ? active?.name : view==='employees' ? 'الموظفون' : 'لوحة التحكم'}}</h1>
+    </div>
+    <div class="actions"><button (click)="print()" [disabled]="!employees.length">طباعة التقرير</button></div>
+  </header>
+
+  <section *ngIf="view==='dashboard'" class="page fade-in">
+    <div class="hero">
+      <div><h2>مرحبًا بك في مِيزان</h2><p>استورد ملف البصمات، راجع الأخطاء، ونظّم الحضور والانصراف بسهولة.</p></div>
+      <label class="primary">{{busy?'جارٍ التحليل…':'استيراد ملف الحضور'}}<input type="file" accept=".xlsx,.xls,.csv" (change)="importFile($event)"></label>
+    </div>
+    <div class="stats">
+      <article class="rise" style="--d:0s"><span>الموظفون</span><b>{{employees.length}}</b></article>
+      <article class="rise" style="--d:.05s"><span>أيام العمل المسجلة</span><b>{{totalDays}}</b></article>
+      <article class="rise" style="--d:.1s"><span>إجمالي ساعات العمل</span><b>{{totalHours | number:'1.1-1'}} س</b></article>
+      <article class="rise warn" style="--d:.15s"><span>أيام ناقصة</span><b>{{totalIssues}}</b></article>
+      <article class="rise danger" style="--d:.2s"><span>أيام غياب</span><b>{{totalAbsences}}</b></article>
+      <article class="rise night" style="--d:.25s"><span>ورديات ليلية</span><b>{{totalNightShifts}}</b></article>
+    </div>
+    <div *ngIf="errors.length" class="errors fade-in">
+      <h3>تنبيهات الاستيراد ({{errors.length}})</h3>
+      <p *ngFor="let error of errors | slice:0:8">الصف {{error.row || '—'}}: {{error.message}}</p>
+    </div>
+    <div class="empty" *ngIf="!employees.length && !errors.length">يرجى رفع ملف Excel يحتوي على الأعمدة: <code>Department, Name, No, DateTime, Status, LocationID</code></div>
+  </section>
+
+  <section *ngIf="view==='employees'" class="page fade-in">
+    <div class="employees-toolbar" *ngIf="employees.length">
+      <input type="search" class="search-input" [(ngModel)]="employeeSearch" placeholder="🔍 ابحث عن قسم، أو اسم موظف، أو رقمه...">
+    </div>
+
+    <div class="dept-groups" *ngIf="employees.length; else none">
+      <div class="dept-group rise" *ngFor="let g of filteredGroups; let gi = index" [style.--d.s]="gi*0.03">
+        <button type="button" class="dept-head" (click)="toggleDept(g.department)">
+          <span class="dept-name">{{g.department}}</span>
+          <span class="dept-count">{{g.employees.length}} موظف</span>
+          <span class="dept-caret" [class.open]="!isCollapsed(g.department)">⌄</span>
+        </button>
+        <div class="table-card" *ngIf="!isCollapsed(g.department)">
+          <table>
+            <thead><tr><th>الموظف</th><th>أيام العمل</th><th>ناقصة</th><th>غياب</th><th>الساعات</th><th>توقيعات</th><th></th></tr></thead>
+            <tbody>
+              <tr *ngFor="let e of g.employees">
+                <td><b>{{e.name}}</b><small>#{{e.no}}</small></td>
+                <td>{{employeeDays(e)}}</td>
+                <td><span class="pill" [class.pill-warn]="incompleteDays(e).length">{{incompleteDays(e).length}}</span></td>
+                <td><span class="pill" [class.pill-danger]="absentDays(e).length">{{absentDays(e).length}}</span></td>
+                <td>{{employeeHours(e) | number:'1.1-1'}} س</td>
+                <td>{{e.signatures.length}}</td>
+                <td><button class="link" (click)="select(e)">عرض الملف ←</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="empty" *ngIf="!filteredGroups.length">لا توجد نتائج مطابقة لبحثك.</div>
+    </div>
+    <ng-template #none><div class="empty">لا توجد بيانات بعد. ابدأ باستيراد ملف الحضور.</div></ng-template>
+  </section>
+
+  <section *ngIf="view==='employee' && active" class="page fade-in">
+    <button class="back" (click)="view='employees'">← كل الموظفين</button>
+
+    <div class="profile">
+      <div><h2>{{active.name}}</h2><p>#{{active.no}} · {{active.department}}</p></div>
+      <div class="summary">
+        <span>أيام العمل <b>{{employeeDays(active)}}</b></span>
+        <span>الساعات <b>{{employeeHours(active) | number:'1.1-1'}} س</b></span>
+        <span>أيام ناقصة <b class="text-warn">{{incompleteDays(active).length}}</b></span>
+        <span>أيام غياب <b class="text-danger">{{absentDays(active).length}}</b></span>
+        <span>ورديات ليلية <b class="text-night">{{nightShiftDays(active)}}</b></span>
+      </div>
+    </div>
+
+    <div class="employee-layout">
+      <div class="main-col">
+        <div class="attendance-head">
+          <div><h3>مراجعة أيام الحضور</h3><p>الأيام من أول بصمة لآخر بصمة، بما فيها أيام الغياب والأيام الناقصة بترتيبها، وأي تعديل يظهر بجواره ويمكن إرجاعه للأصل.</p></div>
+          <button class="small" (click)="openAddDay()">+ إضافة يوم حضور</button>
+        </div>
+
+        <div class="day-grid">
+          <article class="day-card rise"
+                    *ngFor="let date of dateRange(active); let i = index; trackBy: trackDate"
+                    [style.--d.s]="i*0.03"
+                    [class.status-complete]="dayStatus(active,date)==='complete'"
+                    [class.status-incomplete]="dayStatus(active,date)==='incomplete'"
+                    [class.status-absent]="dayStatus(active,date)==='absent'"
+                    [class.new-day]="isNew(dayPunches(active,date)[0])">
+
+            <div class="day-top">
+              <div>
+                <b>{{date}}</b>
+                <span>{{dayStatus(active,date)==='absent' ? 'لا توجد بصمات' : fmtMinutes(dayMinutes(active,date))}}</span>
+              </div>
+              <div class="badge-group">
+                <span class="day-badge shift-badge" *ngIf="shiftType(active,date)" [class.night]="shiftType(active,date)==='ليلية'">{{shiftType(active,date)}}</span>
+                <span class="day-badge" [ngClass]="'badge-' + dayStatus(active,date)">{{statusLabel(dayStatus(active,date))}}</span>
+              </div>
+            </div>
+
+            <div class="new-label" *ngIf="isNew(dayPunches(active,date)[0])">يوم مضاف جديدًا</div>
+
+            <!-- يوم غياب: لا يوجد بصمات إطلاقًا -->
+            <ng-container *ngIf="dayStatus(active,date)==='absent'">
+              <div class="absent-body">
+                <p>لم تُسجَّل أي بصمة حضور أو انصراف في هذا اليوم.</p>
+                <button class="small" (click)="openAddDay(date)">+ تسجيل حضور لهذا اليوم</button>
+              </div>
+            </ng-container>
+
+            <!-- يوم فيه بصمات (كامل أو ناقص) -->
+            <ng-container *ngIf="dayStatus(active,date)!=='absent'">
+              <div class="punch-row" *ngFor="let p of dayPunches(active,date); trackBy: trackPunch" [class.changed]="isChanged(p)">
+                <button type="button" class="status" [class.out]="p.status==='C/Out'" (click)="toggleStatus(p)" title="اضغط لتبديل النوع لو البصمة اتسجلت حضور بدل انصراف أو العكس">{{p.status==='C/In'?'حضور':'انصراف'}}</button>
+              <div class="time-box"><input type="time" [(ngModel)]="p.time" (ngModelChange)="persist()"></div>
+                <span class="place" title="رقم المكانة">{{p.location || '—'}}</span>
+                <div class="round">
+                  <button title="تقريب لأعلى" (click)="roundPunch(p,'up')">⌃</button>
+                  <button title="تقريب لأسفل" (click)="roundPunch(p,'down')">⌄</button>
+                </div>
+                <button class="move" title="نقل هذه البصمة ليوم وردية آخر" (click)="openMove(active,p)">↔</button>
+                <div class="row-tags">
+                  <ng-container *ngIf="isChanged(p)"><span class="changed-label">تم التعديل</span><button class="restore one" (click)="restorePunch(p)">الأصل</button></ng-container>
+                  <ng-container *ngIf="isMoved(p)"><span class="changed-label moved-label">منقولة ليوم {{shiftDateOf(active,p)}}</span><button class="restore one" (click)="resetMove(p)">تلقائي</button></ng-container>
+                </div>
+                <button class="delete" title="حذف البصمة" (click)="removePunch(active,p)">✕</button>
+              </div>
+              <div class="missing" *ngIf="dayStatus(active,date)==='incomplete'">تنبيه: يلزم وجود بصمة حضور وبصمة انصراف ليتم حساب ساعات اليوم.</div>
+              <div class="day-actions">
+                <button title="تقريب كل بصمات اليوم لأسفل" (click)="roundDay(active,date,'down')">⌄ ساعة</button>
+                <button title="تقريب كل بصمات اليوم لأعلى" (click)="roundDay(active,date,'up')">⌃ ساعة</button>
+                <button class="restore" (click)="restoreDay(active,date)">إرجاع اليوم</button>
+              </div>
+            </ng-container>
+
+            <div class="day-note">
+              <label>ملاحظة على اليوم</label>
+              <input type="text" [(ngModel)]="active.dayNotes[date]" (ngModelChange)="updateDayNote(active,date,$event)" placeholder="اجازة، مأمورية، عذر...">
+            </div>
+
+            <div class="day-sign">
+              <div class="day-sign-head">
+                <span>توقيعات اليوم ({{daySignatures(active,date).length}})</span>
+                <button class="small" (click)="openDaySignature(date)">+ توقيع</button>
+              </div>
+              <div class="day-sign-item" *ngFor="let ds of daySignatures(active,date); trackBy: trackDaySig">
+                <div>
+                  <input class="ds-type-edit" list="dsTypes" [(ngModel)]="ds.type" (ngModelChange)="updateDaySignature(active,date,ds)" placeholder="نوع الامضاء">
+                  <small>{{ds.date}} · {{ds.time}} — {{ds.place || 'بدون مكان محدد'}}</small>
+                  <small *ngIf="ds.reason">السبب: {{ds.reason}}</small>
+                  <small *ngIf="ds.notes">ملاحظات: {{ds.notes}}</small>
+                </div>
+                <button class="delete" (click)="removeDaySignature(active,date,ds)">حذف</button>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <aside class="side-col">
+        <div class="side-panel">
+          <div class="side-head"><h3>توقيع اعتماد البطاقة</h3><button class="small" (click)="openSignature()">+ توقيع</button></div>
+          <p class="side-hint">توقيع عام على البطاقة كلها، بدون ربط بمكان — يمكن توقيعها أكثر من مرة، وكل توقيع يظهر برقم ترتيبه للعلم فقط.</p>
+          <div class="signature-list" *ngIf="active.signatures.length; else noSig">
+            <div class="signature-item rise" *ngFor="let s of active.signatures; let i = index; trackBy: trackSig" [style.--d.s]="i*0.04">
+              <div><b>توقيع رقم {{i+1}}</b><small>{{s.name}} · {{s.date}}</small></div>
+              <button class="delete" (click)="removeSignature(active,s)">حذف</button>
+            </div>
+          </div>
+          <ng-template #noSig><div class="empty small-empty">لا يوجد توقيع بعد على هذه البطاقة.</div></ng-template>
+        </div>
+
+        <div class="side-panel">
+          <div class="side-head"><h3>ملاحظات عامة</h3></div>
+          <textarea rows="6" [(ngModel)]="active.notes" (ngModelChange)="updateNote(active,$event)" placeholder="أي ملاحظات عن الموظف أو بطاقته الشهرية..."></textarea>
+        </div>
+      </aside>
+    </div>
+  </section>
+</main>
+</div>
+
+<div class="modal-overlay" *ngIf="addDayOpen">
+  <form class="modal" (ngSubmit)="saveDay(active!)">
+    <button type="button" class="close" (click)="addDayOpen=false">×</button>
+    <h2>إضافة يوم حضور كامل</h2>
+    <p>أدخل التاريخ وبصمتي الحضور والانصراف ليظهر اليوم كبطاقة ملوّنة.</p>
+    <label>التاريخ<input required type="date" name="date" [(ngModel)]="newDay.date"></label>
+    <div class="modal-columns">
+      <label>وقت الحضور<input required type="time" name="inTime" [(ngModel)]="newDay.inTime"></label>
+      <label>وقت الانصراف<input required type="time" name="outTime" [(ngModel)]="newDay.outTime"></label>
+    </div>
+    <div class="modal-columns">
+      <label>موقع الحضور<input name="inLocation" [(ngModel)]="newDay.inLocation"></label>
+      <label>موقع الانصراف<input name="outLocation" [(ngModel)]="newDay.outLocation"></label>
+    </div>
+    <button class="primary" type="submit">إضافة اليوم</button>
+  </form>
+</div>
+
+<div class="modal-overlay" *ngIf="signatureOpen">
+  <form class="modal signature-modal" (ngSubmit)="saveSignature(active!)">
+    <button type="button" class="close" (click)="signatureOpen=false">×</button>
+    <h2>إضافة توقيع اعتماد</h2>
+    <p>اكتب اسم الشخص الذي اعتمد بطاقة هذا الموظف. يمكن إضافة أكثر من توقيع لنفس الموظف، وسيظهر كل توقيع برقمه.</p>
+    <label>الاسم<input required name="signature" [(ngModel)]="signatureName" placeholder="مثال: مسؤول الموارد البشرية"></label>
+    <button class="primary" type="submit">حفظ التوقيع</button>
+  </form>
+</div>
+
+<div class="modal-overlay" *ngIf="daySigOpen">
+  <form class="modal" (ngSubmit)="saveDaySignature(active!)">
+    <button type="button" class="close" (click)="daySigOpen=false">×</button>
+    <h2>توقيع على يوم {{daySigTarget}}</h2>
+    <p>سجّل نوع التوقيع وتاريخه ووقته ومكانه وسببه، خاص بهذا اليوم فقط.</p>
+    <label>نوع الامضاء
+      <input required name="dsType" list="dsTypes" [(ngModel)]="daySigForm.type" placeholder="اختر أو اكتب نوعًا">
+    </label>
+    <div class="modal-columns">
+      <label>تاريخ التوقيع<input required type="date" name="dsDate" [(ngModel)]="daySigForm.date"></label>
+      <label>وقت التوقيع<input required type="time" name="dsTime" [(ngModel)]="daySigForm.time"></label>
+    </div>
+    <label>اسم المكان<input name="dsPlace" [(ngModel)]="daySigForm.place" placeholder="مثال: فرع المعادي"></label>
+    <label>السبب<input name="dsReason" [(ngModel)]="daySigForm.reason" placeholder="سبب التوقيع، أو سبب الغياب/التعديل"></label>
+    <label>ملاحظات<input name="dsNotes" [(ngModel)]="daySigForm.notes" placeholder="ملاحظات إضافية"></label>
+    <button class="primary" type="submit">حفظ التوقيع</button>
+  </form>
+</div>
+
+<div class="modal-overlay" *ngIf="moveOpen">
+  <form class="modal" (ngSubmit)="saveMove()">
+    <button type="button" class="close" (click)="moveOpen=false">×</button>
+    <h2>نقل البصمة ليوم وردية آخر</h2>
+    <p>البصمة الأصلية بتاريخ {{moveTarget?.date}} الساعة {{moveTarget?.time}}. اختر اليوم اللي تتبع له فعليًا لو التقسيم التلقائي للوردية الليلية جاب لغبطة.</p>
+    <label>اليوم<input required type="date" name="moveDate" [(ngModel)]="moveDate"></label>
+    <button class="primary" type="submit">نقل البصمة</button>
+  </form>
+</div>
